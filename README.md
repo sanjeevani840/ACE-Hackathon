@@ -308,14 +308,4 @@ The project follows a modular MVC architecture.
 * AI-powered Post Recommendations
 * Smart Content Moderation
 * Enhanced Analytics Dashboard
-* Campus Marketplace Integration
-
----
-
-# 📄 License
-
-This project was developed as part of a National Level Hackathon for educational and demonstration purposes.
-
----
-
-⭐ **If you found this project interesting, consider giving the repository a star!**
+* Campus Marketplace Integration 
