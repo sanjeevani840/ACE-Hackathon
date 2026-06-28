@@ -2,6 +2,10 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+
+const JWT_SECRET = 'campbuzz-jwt-super-secret-key';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -51,11 +55,11 @@ function writeJSON(file, data) {
 
 // Initialize seed data
 const DEFAULT_USERS = [
-  { email: '25115001@college.edu', rollNumber: '25115001', name: 'Sanjeevani Rao', role: 'student', phone: '+91 98765 43210' },
-  { email: '25115002@college.edu', rollNumber: '25115002', name: 'Rahul Sharma', role: 'student', phone: '+91 98765 01234' },
-  { email: 'codingclub@college.edu', rollNumber: 'club001', name: 'Coding Club', role: 'club', phone: '+91 91234 56789' },
-  { email: 'drama@college.edu', rollNumber: 'club002', name: 'Drama Society', role: 'club', phone: '+91 92345 67890' },
-  { email: 'admin@college.edu', rollNumber: 'admin001', name: 'Chief Administrator', role: 'admin', phone: '+91 99999 99999' }
+  { email: '25115001@college.edu', rollNumber: '25115001', name: 'Sanjeevani Rao', role: 'student', phone: '+91 98765 43210', password: bcrypt.hashSync('25115001', 10) },
+  { email: '25115002@college.edu', rollNumber: '25115002', name: 'Rahul Sharma', role: 'student', phone: '+91 98765 01234', password: bcrypt.hashSync('25115002', 10) },
+  { email: 'codingclub@college.edu', rollNumber: 'club001', name: 'Coding Club', role: 'club', phone: '+91 91234 56789', password: bcrypt.hashSync('club001', 10) },
+  { email: 'drama@college.edu', rollNumber: 'club002', name: 'Drama Society', role: 'club', phone: '+91 92345 67890', password: bcrypt.hashSync('club002', 10) },
+  { email: 'admin@college.edu', rollNumber: 'admin001', name: 'Chief Administrator', role: 'admin', phone: '+91 99999 99999', password: bcrypt.hashSync('admin001', 10) }
 ];
 
 const DEFAULT_POSTS = [
@@ -182,6 +186,20 @@ const DEFAULT_CHATS = {
 
 // Seed database files if empty
 if (!fs.existsSync(USERS_FILE) || readJSON(USERS_FILE).length === 0) writeJSON(USERS_FILE, DEFAULT_USERS);
+
+// Ensure all existing users have a password field (default to their rollNumber)
+const existingUsers = readJSON(USERS_FILE);
+let usersModified = false;
+existingUsers.forEach(u => {
+  if (!u.password) {
+    u.password = bcrypt.hashSync(u.rollNumber, 10);
+    usersModified = true;
+  }
+});
+if (usersModified) {
+  writeJSON(USERS_FILE, existingUsers);
+}
+
 if (!fs.existsSync(POSTS_FILE) || readJSON(POSTS_FILE).length === 0) writeJSON(POSTS_FILE, DEFAULT_POSTS);
 if (!fs.existsSync(EVENTS_FILE) || readJSON(EVENTS_FILE).length === 0) writeJSON(EVENTS_FILE, DEFAULT_EVENTS);
 if (!fs.existsSync(EVENT_REQUESTS_FILE)) writeJSON(EVENT_REQUESTS_FILE, []);
@@ -204,20 +222,27 @@ function broadcastToChat(postId, message) {
 
 // Authentication Middleware
 function authenticateUser(req, res, next) {
-  const token = req.headers['authorization'];
+  let token = req.headers['authorization'];
   if (!token) {
     return res.status(401).json({ error: 'Authorization header is missing' });
   }
   
-  const users = readJSON(USERS_FILE);
-  // Simulating token as the user's email
-  const user = users.find(u => u.email === token);
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid authentication credentials' });
+  if (token.startsWith('Bearer ')) {
+    token = token.slice(7);
   }
   
-  req.user = user;
-  next();
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const users = readJSON(USERS_FILE);
+    const user = users.find(u => u.rollNumber === decoded.rollNumber);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid authentication credentials' });
+    }
+    req.user = user;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
 }
 
 // Role Guard Middleware
@@ -232,41 +257,79 @@ function requireRoles(roles) {
 
 // --- API ROUTES ---
 
-// 1. Auth Endpoint
-app.post('/api/auth/login', (req, res) => {
-  const { email, rollNumber } = req.body;
-  if (!email || !rollNumber) {
-    return res.status(400).json({ error: 'Email and Roll Number are required' });
+// 1. Register Endpoint
+app.post('/api/auth/register', (req, res) => {
+  const { name, email, rollNumber, password, confirmPassword, role } = req.body;
+  
+  if (!name || !email || !rollNumber || !password || !confirmPassword || !role) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  if (password !== confirmPassword) {
+    return res.status(400).json({ error: 'Passwords do not match' });
+  }
+
+  const allowedRoles = ['student', 'faculty', 'club', 'admin'];
+  if (!allowedRoles.includes(role.toLowerCase())) {
+    return res.status(400).json({ error: 'Invalid role selection' });
   }
 
   const users = readJSON(USERS_FILE);
-  let user = users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.rollNumber === rollNumber);
   
-  if (!user) {
-    // For ease of demo / local testing, auto-register new students/clubs with mock names
-    const domain = email.split('@')[1];
-    let role = 'student';
-    let name = email.split('@')[0].replace(/[^a-zA-Z]/g, ' ');
-    name = name.charAt(0).toUpperCase() + name.slice(1);
+  const emailExists = users.some(u => u.email.toLowerCase() === email.toLowerCase());
+  const rollExists = users.some(u => u.rollNumber === rollNumber);
 
-    if (email.startsWith('admin')) {
-      role = 'admin';
-    } else if (rollNumber.startsWith('club') || email.includes('club') || email.includes('committee')) {
-      role = 'club';
-    }
-
-    user = {
-      email: email.toLowerCase(),
-      rollNumber,
-      name,
-      role,
-      phone: '+91 99999 99999'
-    };
-    users.push(user);
-    writeJSON(USERS_FILE, users);
+  if (emailExists || rollExists) {
+    return res.status(400).json({ error: 'User with this Email or Roll Number already registered' });
   }
 
-  res.json({ user, token: user.email });
+  const hashedPassword = bcrypt.hashSync(password, 10);
+  
+  const newUser = {
+    name: name.trim(),
+    email: email.toLowerCase().trim(),
+    rollNumber: rollNumber.trim(),
+    password: hashedPassword,
+    role: role.toLowerCase(),
+    phone: '+91 99999 99999'
+  };
+
+  users.push(newUser);
+  writeJSON(USERS_FILE, users);
+
+  res.status(201).json({ message: 'Registration successful' });
+});
+
+// 2. Login Endpoint
+app.post('/api/auth/login', (req, res) => {
+  const { rollNumber, password } = req.body;
+  
+  if (!rollNumber || !password) {
+    return res.status(400).json({ error: 'Roll Number and Password are required' });
+  }
+
+  const users = readJSON(USERS_FILE);
+  const user = users.find(u => u.rollNumber === rollNumber);
+  
+  if (!user || !user.password || !bcrypt.compareSync(password, user.password)) {
+    return res.status(400).json({ error: 'Invalid Roll Number or Password' });
+  }
+
+  const token = jwt.sign(
+    { rollNumber: user.rollNumber, email: user.email, role: user.role },
+    JWT_SECRET,
+    { expiresIn: '24h' }
+  );
+
+  const userResponse = {
+    email: user.email,
+    rollNumber: user.rollNumber,
+    name: user.name,
+    role: user.role,
+    phone: user.phone
+  };
+
+  res.json({ user: userResponse, token });
 });
 
 // 2. Fetch logged in user status

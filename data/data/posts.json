@@ -1,0 +1,49 @@
+[
+  {
+    "id": "post_1",
+    "title": "Splitting Pizza order from Dominoes",
+    "description": "Ordering a double cheese Margherita and Pepper BBQ chicken. Anyone want to split the cost? Meet at Hostel 3 lounge.",
+    "hashtag": "#foodsplit",
+    "imageUrl": "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=500&auto=format&fit=crop&q=60",
+    "posterEmail": "25115001@college.edu",
+    "posterName": "Sanjeevani Rao",
+    "createdAt": 1782554153060,
+    "expiresAt": 1782640553060,
+    "isClosed": false
+  },
+  {
+    "id": "post_3",
+    "title": "Selling Kindle Paperwhite (10th Gen)",
+    "description": "Excellent condition, 8GB storage, backlight works perfectly. Price: ₹6,500. Negotiable. Drop in chat if interested!",
+    "hashtag": "#resell",
+    "imageUrl": "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=500&auto=format&fit=crop&q=60",
+    "posterEmail": "25115001@college.edu",
+    "posterName": "Sanjeevani Rao",
+    "createdAt": 1782539753060,
+    "isClosed": false
+  },
+  {
+    "id": "post_4",
+    "title": "Lost black leather wallet in Library",
+    "description": "Lost my wallet containing roll card and driving license near the first-floor reading room. Please contact if found!",
+    "hashtag": "#lost",
+    "imageUrl": "https://images.unsplash.com/photo-1627124112126-7d4d4b7c91cd?w=500&auto=format&fit=crop&q=60",
+    "posterEmail": "25115002@college.edu",
+    "posterName": "Rahul Sharma",
+    "posterPhone": "+91 98765 01234",
+    "createdAt": 1782552353060
+  },
+  {
+    "id": "post_89bjwwkif",
+    "title": "food",
+    "description": "food\n",
+    "hashtag": "#foodsplit",
+    "imageUrl": "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=500&auto=format&fit=crop&q=60",
+    "posterEmail": "25115001@college.edu",
+    "posterName": "Sanjeevani Rao",
+    "posterPhone": "+91 98765 43210",
+    "createdAt": 1782624151063,
+    "expiresAt": 1782710551062,
+    "isClosed": false
+  }
+]

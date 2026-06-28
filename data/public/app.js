@@ -1,4 +1,5 @@
 // --- STATE MANAGEMENT ---
+const API_BASE = "http://localhost:3000";
 let currentUser = null;
 let currentToken = null;
 let currentTab = 'buzz-feed';
@@ -22,6 +23,47 @@ const PRESET_IMAGES = [
   { name: 'Campus OAT', url: 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=500&auto=format&fit=crop&q=60' }
 ];
 
+// --- UI HELPERS (loading skeletons & stats) ---
+function showFeedSkeleton(containerId, count = 3) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const cardClass = containerId.includes('club') ? 'skeleton-card club-skeleton' : 'skeleton-card';
+  container.innerHTML = Array(count).fill('').map(() => `
+    <div class="${cardClass}">
+      <div class="skeleton skeleton-image"></div>
+      <div class="skeleton-body">
+        <div class="skeleton skeleton-title"></div>
+        <div class="skeleton skeleton-text"></div>
+        <div class="skeleton skeleton-text short"></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function showCalendarSkeleton() {
+  const grid = document.getElementById('calendar-grid');
+  if (!grid) return;
+  grid.innerHTML = Array(35).fill('').map(() =>
+    `<div class="skeleton skeleton-list-item" style="aspect-ratio:1; margin:0;"></div>`
+  ).join('');
+}
+
+function updateCampusStats() {
+  const setStat = (id, value) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.dataset.count = value;
+    const current = parseInt(el.textContent, 10) || 0;
+    if (current !== value) {
+      el.dispatchEvent(new CustomEvent('stat-update', { detail: { value } }));
+    }
+  };
+  setStat('stat-posts', posts.length);
+  setStat('stat-events', events.length);
+  setStat('stat-clubs', clubPosts.length);
+  setStat('stat-complaints', complaints.length);
+}
+
 // --- INITIALIZE APPLICATION ---
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
@@ -42,6 +84,20 @@ function loadSavedSession() {
     currentToken = savedToken;
     showAppLayout();
     showToast(`Welcome back, ${currentUser.name}!`, 'success');
+    
+    // Validate session in background
+    apiCall('/api/auth/current-user')
+      .then(data => {
+        currentUser = data.user;
+        localStorage.setItem('campbuzz_user', JSON.stringify(currentUser));
+        // Refresh layouts with updated details if necessary
+        document.getElementById('current-user-name').innerText = currentUser.name;
+        document.getElementById('current-user-role').innerText = currentUser.role;
+        document.getElementById('current-user-avatar').innerText = currentUser.name.charAt(0).toUpperCase();
+      })
+      .catch(() => {
+        // If verify fails (e.g. 401), apiCall handles logout/auth redirect
+      });
   } else {
     showAuthPage();
   }
@@ -52,9 +108,21 @@ function setupEventListeners() {
   // Login form
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const email = document.getElementById('login-email').value;
     const roll = document.getElementById('login-roll').value;
-    await performLogin(email, roll);
+    const password = document.getElementById('login-password').value;
+    await performLogin(roll, password);
+  });
+
+  // Register form
+  document.getElementById('register-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('register-name').value;
+    const email = document.getElementById('register-email').value;
+    const roll = document.getElementById('register-roll').value;
+    const password = document.getElementById('register-password').value;
+    const confirmPassword = document.getElementById('register-confirm-password').value;
+    const role = document.getElementById('register-role').value;
+    await performRegister(name, email, roll, password, confirmPassword, role);
   });
 
   // Create post form
@@ -71,6 +139,15 @@ function setupEventListeners() {
 
   // Chat message submit
   document.getElementById('chat-input-form').addEventListener('submit', sendChatMessage);
+
+  // Close modals on backdrop click
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', (e) => {
+      if (e.target !== overlay) return;
+      if (overlay.id === 'modal-chat-room') closeChatRoom();
+      else closeModal(overlay.id);
+    });
+  });
 }
 
 // Generate the preset cover image options in create post modal
@@ -103,12 +180,49 @@ function useCustomImageUrl(url) {
 }
 
 // --- AUTHENTICATION FLOWS ---
-async function performLogin(email, rollNumber) {
+window.toggleAuthMode = function(mode) {
+  if (mode === 'register') {
+    document.getElementById('login-form-container').style.display = 'none';
+    document.getElementById('register-form-container').style.display = 'block';
+  } else {
+    document.getElementById('login-form-container').style.display = 'block';
+    document.getElementById('register-form-container').style.display = 'none';
+  }
+};
+
+async function performRegister(name, email, rollNumber, password, confirmPassword, role) {
+  if (password !== confirmPassword) {
+    showToast('Passwords do not match', 'error');
+    return;
+  }
   try {
-    const res = await fetch('/api/auth/login', {
+    const res = await fetch(`${API_BASE}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, rollNumber })
+      body: JSON.stringify({ name, email, rollNumber, password, confirmPassword, role })
+    });
+    const data = await res.json();
+    
+    if (res.ok) {
+      showToast('Registration successful! Please log in.', 'success');
+      toggleAuthMode('login');
+      document.getElementById('login-roll').value = rollNumber;
+      document.getElementById('login-password').value = '';
+    } else {
+      showToast(data.error || 'Registration failed', 'error');
+    }
+  } catch (err) {
+    console.error(err);
+    showToast('Network error during registration', 'error');
+  }
+}
+
+async function performLogin(rollNumber, password) {
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rollNumber, password })
     });
     const data = await res.json();
     
@@ -128,10 +242,10 @@ async function performLogin(email, rollNumber) {
   }
 }
 
-function quickLogin(email, roll) {
-  document.getElementById('login-email').value = email;
+function quickLogin(roll, password) {
   document.getElementById('login-roll').value = roll;
-  performLogin(email, roll);
+  document.getElementById('login-password').value = password;
+  performLogin(roll, password);
 }
 
 function logout() {
@@ -199,9 +313,11 @@ async function switchTab(e, tabId) {
   } else if (tabId === 'club-feed') {
     await fetchClubPosts();
   } else if (tabId === 'calendar-view') {
+    showCalendarSkeleton();
     await fetchEvents();
     renderCalendar();
   } else if (tabId === 'complaints-view') {
+    showFeedSkeleton('complaints-container', 3);
     await fetchComplaints();
   }
 }
@@ -224,7 +340,11 @@ async function apiCall(url, method = 'GET', body = null) {
   }
 
   try {
-    const res = await fetch(url, options);
+    const res = await fetch(`${API_BASE}${url}`, options);
+    if (res.status === 401) {
+      logout();
+      throw new Error('Session expired. Please sign in again.');
+    }
     const data = await res.json();
     if (!res.ok) {
       throw new Error(data.error || 'API Error');
@@ -239,10 +359,12 @@ async function apiCall(url, method = 'GET', body = null) {
 
 // --- BUZZ FEED BUSINESS LOGIC ---
 async function fetchPosts() {
+  showFeedSkeleton('buzz-posts-container', 4);
   try {
     posts = await apiCall('/api/posts');
     renderBuzzFeed(posts);
     renderStoriesIndicator(posts);
+    updateCampusStats();
   } catch (e) {}
 }
 
@@ -556,7 +678,7 @@ async function openChatRoom(postId) {
     chatEventSource.close();
   }
   
-  chatEventSource = new EventSource(`/api/chats/${postId}/stream`);
+  chatEventSource = new EventSource(`${API_BASE}/api/chats/${postId}/stream`);
   chatEventSource.onmessage = (event) => {
     const message = JSON.parse(event.data);
     appendMessageBubble(message);
@@ -632,9 +754,11 @@ async function closeCoordinationPost(postId) {
 
 // --- CLUB BOARD LOGIC ---
 async function fetchClubPosts() {
+  showFeedSkeleton('club-posts-container', 2);
   try {
     clubPosts = await apiCall('/api/club-posts');
     renderClubPosts(clubPosts);
+    updateCampusStats();
   } catch (e) {}
 }
 
@@ -759,6 +883,7 @@ async function fetchEvents() {
   try {
     events = await apiCall('/api/events');
     renderEventsListPanel();
+    updateCampusStats();
   } catch (e) {}
 }
 
@@ -1023,6 +1148,7 @@ async function fetchComplaints() {
   try {
     complaints = await apiCall('/api/complaints');
     renderComplaintsList(complaints);
+    updateCampusStats();
   } catch (e) {}
 }
 
